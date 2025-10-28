@@ -16,7 +16,7 @@ threading:
 
 # Email alerting.
 email:
-  enabled: true # If true, an email report will be sent if there are listed IPs.
+  enabled: false # If true, an email report will be sent if there are listed IPs.
   recipients:
     - "vlad@missioninbox.com"
   sender: "vlad@beta.obmengine.com"
