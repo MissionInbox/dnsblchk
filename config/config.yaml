@@ -28,4 +28,4 @@ logging:
   level: "DEBUG"                # Logging level: DEBUG, INFO, WARN, ERROR (default: INFO).
   console_print: true           # Print logs to console in addition to file (default: true).
   log_dir: "logs/"              # Directory for log files.
-  log_file: "logs/dnsblchk.log" # Main log file path.
+  log_file: "dnsblchk.log"      # Log filename (will be combined with log_dir).
