@@ -1,72 +1,12 @@
-import csv
-import sys
 import time
 
 from config import config
+from dnschk import DNSBLCheckHandler
 from dnsrbl import DNSRBLChecker
 from files import FileHandler
-from logger import Logger, LogConfig, LogLevel
+from logger import Logger, LogConfig
 from mail import MailClient
 from signals import SignalHandler, SHUTDOWN_REQUESTED
-
-
-def dnsbl_check_handler(servers: list, ips: list, mail_client: MailClient, dnsrbl_checker: DNSRBLChecker, logger: Logger):
-    """
-    Handles the DNSBL checking process.
-    """
-    if SHUTDOWN_REQUESTED:
-        return
-
-    try:
-        listed_ips = {}
-        report_file_handler = None
-        csv_writer = None
-
-        logger.log_info(f"Checking {len(ips)} IP addresses against {len(servers)} DNSBL servers.")
-
-        for server in servers:
-            if SHUTDOWN_REQUESTED:
-                break
-            for ip in ips:
-                if SHUTDOWN_REQUESTED:
-                    break
-
-                is_listed = dnsrbl_checker.check(ip[0], server[0])
-                if is_listed:
-                    if report_file_handler is None:
-                        timestamp_filename = time.strftime("%Y%m%d%H%M%S", time.gmtime())
-                        report_file_path = config.report_dir / f"report_{timestamp_filename}.csv"
-                        report_file_handler = open(report_file_path, 'w', newline='')
-                        csv_writer = csv.writer(report_file_handler)
-
-                    timestamp = time.strftime("%d %b %Y %H:%M:%S", time.gmtime())
-                    csv_writer.writerow([timestamp, ip[0], server[0], is_listed[1]])
-                    report_file_handler.flush()
-
-                    if ip[0] not in listed_ips:
-                        listed_ips[ip[0]] = []
-                    listed_ips[ip[0]].append(server[0])
-                    logger.log_info(f"DIRTY: {ip[0]} is listed on {server[0]}")
-                else:
-                    logger.log_debug(f"CLEAN: {ip[0]} is not listed on {server[0]}")
-
-                time.sleep(0.01)
-
-        if report_file_handler:
-            report_file_handler.close()
-
-        logger.log_info(f"Found {len(listed_ips)} listed IP addresses.")
-
-        if listed_ips and config.is_email_enabled():
-            send_email_report(listed_ips, mail_client, logger)
-
-    except Exception:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        error_details = SignalHandler.format_exception(exc_type, exc_value, exc_traceback)
-        if error_details:
-            log_config = LogConfig(log_file=config.log_file, level=LogLevel.ERROR)
-            logger = Logger(log_config)
-            logger.log_error(error_details)
 
 
 def send_email_report(listed_ips: dict, mail_client: MailClient, logger: Logger):
@@ -113,8 +53,11 @@ def main():
 
     logger.log_info(f"Loaded {len(servers)} DNSBL servers and {len(ips)} IP addresses.")
 
+    # Create the DNSBL check handler
+    check_handler = DNSBLCheckHandler(mail_client, dnsrbl_checker, logger)
+
     while not SHUTDOWN_REQUESTED:
-        dnsbl_check_handler(servers, ips, mail_client, dnsrbl_checker, logger)
+        check_handler.run(servers, ips)
 
         if config.run_once:
             logger.log_debug("Run-once mode enabled. Exiting.")

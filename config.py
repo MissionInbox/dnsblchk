@@ -137,6 +137,27 @@ class Config:
         email_config = self._config_data.get('email', {})
         return email_config.get('smtp_port', 25)
 
+    def get_thread_count(self) -> int:
+        """
+        Returns the number of threads to use for concurrent DNSBL checks.
+
+        Returns:
+            int: The number of threads (default: 10, minimum: 1).
+        """
+        threading_config = self._config_data.get('threading', {})
+        thread_count = threading_config.get('thread_count', 10)
+        return max(1, thread_count)  # Ensure at least 1 thread
+
+    def is_threading_enabled(self) -> bool:
+        """
+        Returns whether multithreading is enabled.
+
+        Returns:
+            bool: True if multithreading is enabled (default: True).
+        """
+        threading_config = self._config_data.get('threading', {})
+        return threading_config.get('enabled', True)
+
 
 # Create a single instance of the Config class to be used throughout the application
 config = Config()
