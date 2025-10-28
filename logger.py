@@ -36,22 +36,6 @@ class LogConfig:
         self.level = level
         self.console_print = console_print
 
-    def set_log_file(self, log_file: Path) -> None:
-        """Sets or updates the log file path."""
-        self.log_file = log_file
-
-    def set_log_dir(self, log_dir: Path) -> None:
-        """Sets or updates the log directory path."""
-        self.log_dir = log_dir
-
-    def set_level(self, level: LogLevel) -> None:
-        """Sets the logging level."""
-        self.level = level
-
-    def set_console_print(self, enabled: bool) -> None:
-        """Enables or disables console printing."""
-        self.console_print = enabled
-
 
 class Logger:
     """Handles logging of errors and other messages to log files."""
@@ -148,5 +132,7 @@ class Logger:
 
     @staticmethod
     def _timemark() -> str:
-        """Returns the current time formatted as a string."""
+        """Returns the current time formatted as a string in GMT."""
+        # Format current time in GMT format for consistent logging timestamps.
+        return time.strftime("%d %b %Y %H:%M:%S", time.gmtime())
         return time.strftime("%d %b %Y %H:%M:%S", time.gmtime())
