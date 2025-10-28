@@ -8,9 +8,8 @@ DNSblChk is a modern, open-source Python service for monitoring and reporting on
 -   **Easy Configuration**: All settings are managed in a single `config/config.yaml` file.
 -   **Flexible Operation**: Can be run as a continuous monitoring service or as a one-time check.
 -   **Email Alerts**: Sends detailed email notifications when listed IP addresses are found.
--   **CSV Logging**: Records all findings in CSV files for easy analysis.
--   **Graceful Shutdown**: Handles interrupt signals to shut down cleanly.
--   **Unit Tested**: Core functionalities are covered by unit tests.
+-   **CSV Reports**: Records all findings in CSV files for easy analysis.
+-   **Advanced Logging**: Configurable logging levels (DEBUG, INFO, WARN, ERROR) with console and file output control.
 
 ## Installation
 
@@ -31,6 +30,8 @@ All configuration is done in the `config.yaml` file. Here are the available opti
 
 -   `run_once`: If `true`, the script will run once and then exit. (Default: `false`)
 -   `sleep_hours`: The number of hours to wait between checks. (Default: `3`)
+-   `log_level`: Logging level for the application. Can be `DEBUG`, `INFO`, `WARN`, or `ERROR`. (Default: `INFO`)
+-   `console_print`: If `true`, log messages will be printed to console in addition to the log file. (Default: `true`)
 -   `email_report`: If `true`, an email report will be sent if any IPs are listed. (Default: `true`)
 -   `recipients`: A list of email addresses to receive alerts.
 -   `from_email`: The "From" address for email alerts.

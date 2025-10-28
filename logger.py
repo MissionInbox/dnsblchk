@@ -1,76 +1,113 @@
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+
+class LogLevel(Enum):
+    """Enumeration for logging levels."""
+    DEBUG = 0
+    INFO = 1
+    WARN = 2
+    ERROR = 3
+
+
+class LogConfig:
+    """Configuration object for logging."""
+
+    def __init__(
+        self,
+        log_file: Optional[Path] = None,
+        log_dir: Optional[Path] = None,
+        level: LogLevel = LogLevel.INFO,
+        console_print: bool = True,
+    ):
+        """
+        Initialize the log configuration.
+
+        Args:
+            log_file: Path to the log file. If None, no logging to file will occur.
+            log_dir: Path to the log directory. Will be created if it doesn't exist.
+            level: Logging level (DEBUG, INFO, WARN, ERROR). Defaults to INFO.
+            console_print: Enable printing logs to console. Defaults to True.
+        """
+        self.log_file = log_file
+        self.log_dir = log_dir
+        self.level = level
+        self.console_print = console_print
+
+    def set_log_file(self, log_file: Path) -> None:
+        """Sets or updates the log file path."""
+        self.log_file = log_file
+
+    def set_log_dir(self, log_dir: Path) -> None:
+        """Sets or updates the log directory path."""
+        self.log_dir = log_dir
+
+    def set_level(self, level: LogLevel) -> None:
+        """Sets the logging level."""
+        self.level = level
+
+    def set_console_print(self, enabled: bool) -> None:
+        """Enables or disables console printing."""
+        self.console_print = enabled
 
 
 class Logger:
     """Handles logging of errors and other messages to log files."""
 
-    def __init__(self, log_file: Optional[Path] = None, log_dir: Optional[Path] = None, debug: bool = False):
+    def __init__(self, config: LogConfig):
         """
-        Initialize the logger with an optional log file path.
+        Initialize the logger with a LogConfig object.
 
         Args:
-            log_file: Path to the log file. If None, no logging to file will occur.
-            log_dir: Path to the log directory. Will be created if it doesn't exist.
-            debug: Enable debug logging.
+            config: LogConfig object containing logging configuration.
         """
-        self.log_file = log_file
-        self.debug = debug
+        self.config = config
 
         # Create log directory if provided
-        if log_dir:
-            self._create_log_directory(log_dir)
+        if self.config.log_dir:
+            self._create_log_directory(self.config.log_dir)
 
-    def log_error(self, message: str, log_file: Optional[Path] = None) -> None:
+    def log_error(self, message: str) -> None:
         """
         Logs an error message to a file with a timestamp.
 
         Args:
             message: The error message to log.
-            log_file: Optional override for the log file path. Uses self.log_file if not provided.
         """
-        self._log("ERROR", message, log_file)
+        if self.config.level.value <= LogLevel.ERROR.value:
+            self._log("ERROR", message)
 
-    def log_info(self, message: str, log_file: Optional[Path] = None) -> None:
+    def log_info(self, message: str) -> None:
         """
         Logs an info message to a file with a timestamp.
 
         Args:
             message: The info message to log.
-            log_file: Optional override for the log file path. Uses self.log_file if not provided.
         """
-        self._log("INFO", message, log_file)
+        if self.config.level.value <= LogLevel.INFO.value:
+            self._log("INFO", message)
 
-    def log_warning(self, message: str, log_file: Optional[Path] = None) -> None:
+    def log_warning(self, message: str) -> None:
         """
         Logs a warning message to a file with a timestamp.
 
         Args:
             message: The warning message to log.
-            log_file: Optional override for the log file path. Uses self.log_file if not provided.
         """
-        self._log("WARN", message, log_file)
+        if self.config.level.value <= LogLevel.WARN.value:
+            self._log("WARN", message)
 
-    def log_debug(self, message: str, log_file: Optional[Path] = None) -> None:
+    def log_debug(self, message: str) -> None:
         """
         Logs a debug message to a file with a timestamp (only if debug mode is enabled).
 
         Args:
             message: The debug message to log.
-            log_file: Optional override for the log file path. Uses self.log_file if not provided.
         """
-        if self.debug:
-            self._log("DEBUG", message, log_file)
-
-    def set_log_file(self, log_file: Path) -> None:
-        """
-        Sets or updates the log file path.
-
-        Args:
-            log_file: Path to the new log file.
-        """
-        self.log_file = log_file
+        if self.config.level.value <= LogLevel.DEBUG.value:
+            self._log("DEBUG", message)
 
     def _log(self, log_type: str, message: str, log_file: Optional[Path] = None) -> None:
         """
@@ -81,13 +118,20 @@ class Logger:
             message: The message to log.
             log_file: Optional override for the log file path.
         """
-        file_path = log_file or self.log_file
+        file_path = log_file or self.config.log_file
         if not file_path:
             return
 
+        timestamp = self._timemark()
+        log_message = f"{log_type} - {timestamp}: {message}"
+
+        # Write to file
         with open(file_path, 'a') as f:
-            timestamp = self._timemark()
-            f.write(f"{timestamp} - {log_type}: {message}\n")
+            f.write(log_message + "\n")
+
+        # Print to console if enabled
+        if self.config.console_print:
+            print(log_message)
 
     def _create_log_directory(self, log_dir: Path) -> None:
         """
@@ -99,8 +143,8 @@ class Logger:
         """
         if not log_dir.exists():
             log_dir.mkdir(parents=True, exist_ok=True)
-            if self.debug:
-                print(f"[DEBUG] Created log file: {log_dir}")
+            if self.config.level.value <= LogLevel.DEBUG.value and self.config.console_print:
+                print(f"[DEBUG] Created log directory: {log_dir}")
 
     @staticmethod
     def _timemark() -> str:

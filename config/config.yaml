@@ -4,6 +4,13 @@
 run_once: true  # If true, the script will run once and then exit.
 sleep_hours: 3   # Hours to sleep between checks if run_once is false.
 
+# Logging settings
+logging:
+  level: "INFO"         # Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)
+  console_print: true   # Print logs to console in addition to file (default: true)
+  log_dir: "logs/"      # Directory for log files
+  log_file: "logs/dnsblchk.log"  # Main log file path
+
 # Email alerting
 email_report: true # If true, an email report will be sent if there are listed IPs.
 recipients:
@@ -15,6 +22,4 @@ smtp_port: 25
 # File paths (relative to the project root)
 servers_file: "config/servers.txt"
 ips_file: "config/ips.txt"
-log_dir: "logs/"
-log_file: "logs/dnsblchk.log"
 report_dir: "logs/"
