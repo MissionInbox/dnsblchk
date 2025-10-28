@@ -37,9 +37,21 @@ class Config:
         # Resolve logging paths from nested logging config section.
         logging_config = self._config_data.get('logging', {})
         if 'log_dir' in logging_config:
+            # Resolve log directory to absolute path.
             logging_config['log_dir'] = self._get_absolute_path_from_logging('log_dir')
         if 'log_file' in logging_config:
-            logging_config['log_file'] = self._get_absolute_path_from_logging('log_file')
+            # Combine log_dir and log_file to create the full path.
+            log_dir = logging_config.get('log_dir')
+            log_filename = logging_config.get('log_file')
+            if log_dir and log_filename:
+                # Create absolute path by combining log_dir with log_file.
+                root_path = Path(__file__).parent
+                abs_log_dir = root_path / log_dir
+                # Store the combined absolute path.
+                logging_config['log_file'] = abs_log_dir / log_filename
+            else:
+                # Fallback to old behavior if either is missing.
+                logging_config['log_file'] = self._get_absolute_path_from_logging('log_file')
 
     def _get_absolute_path(self, key: str) -> Path:
         """Returns an absolute path for a given config key."""

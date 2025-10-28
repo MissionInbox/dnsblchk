@@ -16,11 +16,11 @@ class LogConfig:
     """Configuration object for logging."""
 
     def __init__(
-        self,
-        log_file: Optional[Path] = None,
-        log_dir: Optional[Path] = None,
-        level: LogLevel = LogLevel.INFO,
-        console_print: bool = True,
+            self,
+            log_file: Optional[Path] = None,
+            log_dir: Optional[Path] = None,
+            level: LogLevel = LogLevel.INFO,
+            console_print: bool = True,
     ):
         """
         Initialize the log configuration.
