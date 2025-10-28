@@ -55,6 +55,11 @@ class Config:
         if name in logging_config:
             return logging_config[name]
 
+        # Check if the attribute is in the nested email config
+        email_config = self._config_data.get('email', {})
+        if name in email_config:
+            return email_config[name]
+
         raise AttributeError(f"'Config' object has no attribute '{name}'")
 
     def get_log_level(self) -> LogLevel:
@@ -81,6 +86,56 @@ class Config:
         """
         logging_config = self._config_data.get('logging', {})
         return logging_config.get('console_print', True)
+
+    def is_email_enabled(self) -> bool:
+        """
+        Returns whether email alerting is enabled.
+
+        Returns:
+            bool: True if email alerting is enabled (default: False).
+        """
+        email_config = self._config_data.get('email', {})
+        return email_config.get('enabled', False)
+
+    def get_email_recipients(self) -> list:
+        """
+        Returns the list of email recipients.
+
+        Returns:
+            list: List of email recipient addresses (default: empty list).
+        """
+        email_config = self._config_data.get('email', {})
+        return email_config.get('recipients', [])
+
+    def get_email_sender(self) -> str:
+        """
+        Returns the email sender address.
+
+        Returns:
+            str: The sender email address (default: empty string).
+        """
+        email_config = self._config_data.get('email', {})
+        return email_config.get('sender', '')
+
+    def get_smtp_host(self) -> str:
+        """
+        Returns the SMTP host.
+
+        Returns:
+            str: The SMTP host (default: empty string).
+        """
+        email_config = self._config_data.get('email', {})
+        return email_config.get('smtp_host', '')
+
+    def get_smtp_port(self) -> int:
+        """
+        Returns the SMTP port.
+
+        Returns:
+            int: The SMTP port (default: 25).
+        """
+        email_config = self._config_data.get('email', {})
+        return email_config.get('smtp_port', 25)
 
 
 # Create a single instance of the Config class to be used throughout the application

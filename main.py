@@ -57,7 +57,7 @@ def dnsbl_check_handler(servers: list, ips: list, mail_client: MailClient, dnsrb
 
         logger.log_info(f"Found {len(listed_ips)} listed IP addresses.")
 
-        if listed_ips and config.email_report:
+        if listed_ips and config.is_email_enabled():
             send_email_report(listed_ips, mail_client, logger)
 
     except Exception:
@@ -77,10 +77,10 @@ def send_email_report(listed_ips: dict, mail_client: MailClient, logger: Logger)
     for ip, servers in listed_ips.items():
         mail_text += f"{ip} ===> {', '.join(servers)}\n"
 
-    for recipient in config.recipients:
+    for recipient in config.get_email_recipients():
         success, error = mail_client.send_plain(
             to_email=recipient,
-            from_email=config.from_email,
+            from_email=config.get_email_sender(),
             subject="DNS Black List Alert",
             message=mail_text
         )
@@ -105,7 +105,7 @@ def main():
 
     signal_handler = SignalHandler()
     signal_handler.setup_signal_handlers()
-    mail_client = MailClient(config.smtp_host, config.smtp_port)
+    mail_client = MailClient(config.get_smtp_host(), config.get_smtp_port())
     dnsrbl_checker = DNSRBLChecker()
 
     servers = FileHandler.load_csv(config.servers_file)
