@@ -39,7 +39,8 @@ All configuration is done in the `config.yaml` file. Here are the available opti
 -   `servers_file`: Path to the CSV file containing DNSBL servers.
 -   `ips_file`: Path to the CSV file containing IPs to check.
 -   `log_dir`: Directory to store log files.
--   `error_log`: Path to the file for logging errors.
+-   `log_file`: Path to the main log file for logging errors and events.
+-   `report_dir`: Directory to store CSV report files from DNSBL checks.
 
 ## Usage
 

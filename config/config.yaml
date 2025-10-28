@@ -16,4 +16,5 @@ smtp_port: 25
 servers_file: "config/servers.txt"
 ips_file: "config/ips.txt"
 log_dir: "logs/"
-error_log: "logs/error_log"
+log_file: "logs/dnsblchk.log"
+report_dir: "logs/"

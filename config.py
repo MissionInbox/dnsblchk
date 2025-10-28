@@ -24,7 +24,8 @@ class Config:
         self._config_data['servers_file'] = self._get_absolute_path('servers_file')
         self._config_data['ips_file'] = self._get_absolute_path('ips_file')
         self._config_data['log_dir'] = self._get_absolute_path('log_dir')
-        self._config_data['error_log'] = self._get_absolute_path('error_log')
+        self._config_data['log_file'] = self._get_absolute_path('log_file')
+        self._config_data['report_dir'] = self._get_absolute_path('report_dir')
 
     def _get_absolute_path(self, key: str) -> Path:
         """Returns an absolute path for a given config key."""
