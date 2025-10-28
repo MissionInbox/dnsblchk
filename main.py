@@ -6,7 +6,7 @@ from dnsrbl import DNSRBLChecker
 from files import FileHandler
 from logger import Logger, LogConfig
 from mail import MailClient
-from signals import SignalHandler, SHUTDOWN_REQUESTED
+from signals import SignalHandler
 
 
 def send_email_report(listed_ips: dict, mail_client: MailClient, logger: Logger):
@@ -32,7 +32,7 @@ def main():
     """
     Main function to run the DNSBL checker.
     """
-    # Create logger with config-driven settings
+    # Create logger with config-driven settings.
     log_config = LogConfig(
         log_file=config.log_file,
         log_dir=config.log_dir,
@@ -56,7 +56,7 @@ def main():
     # Create the DNSBL check handler
     check_handler = DNSBLCheckHandler(mail_client, dnsrbl_checker, logger)
 
-    while not SHUTDOWN_REQUESTED:
+    while not signal_handler.is_shutdown_requested:
         check_handler.run(servers, ips)
 
         if config.run_once:
@@ -66,9 +66,9 @@ def main():
         sleep_duration = config.sleep_hours * 3600
         logger.log_info(f"Sleeping for {config.sleep_hours} hours...")
 
-        # Sleep in small intervals to allow for graceful shutdown
+        # Sleep in small intervals to allow for graceful shutdown.
         for _ in range(int(sleep_duration / 10)):
-            if SHUTDOWN_REQUESTED:
+            if signal_handler.is_shutdown_requested:
                 break
             time.sleep(10)
 

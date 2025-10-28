@@ -8,7 +8,7 @@ from config import config
 from dnsrbl import DNSRBLChecker
 from logger import Logger, LogConfig, LogLevel
 from mail import MailClient
-from signals import SignalHandler, SHUTDOWN_REQUESTED
+from signals import SignalHandler
 
 
 class DNSBLCheckHandler:
@@ -44,7 +44,7 @@ class DNSBLCheckHandler:
         Returns:
             tuple: (ip, server, is_listed, result_details)
         """
-        if SHUTDOWN_REQUESTED:
+        if SignalHandler().is_shutdown_requested:
             return None
 
         try:
@@ -115,7 +115,7 @@ class DNSBLCheckHandler:
             servers: List of DNSBL servers
             ips: List of IPs to check
         """
-        if SHUTDOWN_REQUESTED:
+        if SignalHandler().is_shutdown_requested:
             return
 
         try:
@@ -129,10 +129,10 @@ class DNSBLCheckHandler:
             # Prepare all check tasks
             check_tasks = []
             for server in servers:
-                if SHUTDOWN_REQUESTED:
+                if SignalHandler().is_shutdown_requested:
                     break
                 for ip in ips:
-                    if SHUTDOWN_REQUESTED:
+                    if SignalHandler().is_shutdown_requested:
                         break
                     check_tasks.append((ip[0], server[0]))
 
@@ -145,7 +145,7 @@ class DNSBLCheckHandler:
                 }
 
                 for future in as_completed(futures):
-                    if SHUTDOWN_REQUESTED:
+                    if SignalHandler().is_shutdown_requested:
                         break
 
                     try:
