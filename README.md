@@ -5,12 +5,10 @@ It is designed for ease of use, with a straightforward configuration and clear r
 
 ## Features
 
--   **Modern Python**: Refactored for Python 3 with type hints and current best practices.
 -   **Easy Configuration**: All settings are managed in a single `config/config.yaml` file.
 -   **CSV Reports**: Records all findings in CSV files for easy analysis.
 -   **Email Alerts**: Sends detailed email notifications when listed IP addresses are found.
 -   **Flexible Operation**: Can be run as a continuous monitoring service or as a one-time check.
--   **Multithreading Support**: Run DNSBL checks across multiple threads for improved performance.
 -   **Advanced Logging**: Configurable logging levels (DEBUG, INFO, WARN, ERROR) with console and file output control.
 
 ## Installation
@@ -67,34 +65,8 @@ All configuration is done in the `config.yaml` file. Here are the available opti
 -   `email.use_tls`: If `true`, enables STARTTLS after connecting (typical for port 587).
 -   `email.use_ssl`: If `true`, uses implicit SSL (typical for port 465). Overrides `use_tls` if both are `true`.
 
-Examples:
-```
-# STARTTLS on port 587
-email:
-  enabled: true
-  recipients: ["ops@example.com"]
-  sender: "dnsblchk@example.com"
-  smtp_host: "smtp.example.com"
-  smtp_port: 587
-  smtp_user: "dnsblchk"
-  smtp_password: "changeMe"
-  use_tls: true
-  use_ssl: false
-
-# Implicit SSL on port 465
-email:
-  enabled: true
-  recipients: ["ops@example.com"]
-  sender: "dnsblchk@example.com"
-  smtp_host: "smtp.example.com"
-  smtp_port: 465
-  smtp_user: "dnsblchk"
-  smtp_password: "changeMe"
-  use_tls: false
-  use_ssl: true
-```
-
-Security tip: Prefer environment-specific secrets management (e.g., Ansible Vault, Kubernetes secrets) to store `smtp_password` instead of committing plain text to version control.
+Security tip: Prefer environment-specific secrets management (e.g., Ansible Vault, Kubernetes secrets)
+to store `smtp_password` instead of committing plain text to version control.
 
 ### Logging Settings
 -   `logging.level`: Logging level for the application. Can be `DEBUG`, `INFO`, `WARN`, or `ERROR`. (Default: `INFO`)
@@ -112,3 +84,77 @@ python main.py
 
 The service will start checking the IPs listed in `config/ips.txt` against the DNSBL servers in `config/servers.txt`.
 Any findings will be logged and to a CSV file and if configured, email alerts will be sent.
+
+## Docker Usage
+
+You can run dnsblchk in a container.
+The image is published to GitHub Container Registry (GHCR) on release.
+
+### Build Locally
+
+```bash
+docker build -t dnsblchk:local .
+```
+
+### Run Locally (Manual)
+
+Mount the `config` and `logs` directories so they persist and can be edited without rebuilding the image.
+
+```bash
+mkdir -p config logs
+# Ensure config/config.yaml exists (copy template if needed)
+cp config/config.yaml.template config/config.yaml
+# Edit config/config.yaml as desired.
+
+docker run --rm \
+  -v "$(pwd)/config:/app/config" \
+  -v "$(pwd)/logs:/app/logs" \
+  dnsblchk:local
+```
+
+### Using docker-compose
+
+A `docker-compose.yml` is included:
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+
+Edit `config/config.yaml` locally; the container picks up changes automatically on next cycle.
+
+### Published Image
+
+On release tags, GitHub Actions builds and pushes multi-arch images to:
+
+```
+ghcr.io/transilvlad/dnsblchk:latest
+ghcr.io/transilvlad/dnsblchk:<tag>
+```
+
+Pull and run:
+
+```bash
+docker pull ghcr.io/transilvlad/dnsblchk:latest
+docker run -d --name dnsblchk \
+  -v "$(pwd)/config:/app/config" \
+  -v "$(pwd)/logs:/app/logs" \
+  ghcr.io/transilvlad/dnsblchk:latest
+```
+
+### Configuration & Logs
+
+- Config volume mount: `./config` -> `/app/config`
+- Logs volume mount: `./logs` -> `/app/logs`
+
+Adjust `config.yaml` to disable `run_once` for continuous operation.
+
+### Updating
+
+Pull the latest image and recreate the compose service:
+
+```bash
+docker compose pull
+docker compose up -d
+docker image prune -f
+```

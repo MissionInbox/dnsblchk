@@ -5,6 +5,10 @@ on:
     branches: [ main ]
     tags: [ 'v*' ]
   pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
 
 concurrency:
   group: build-packages-${{ github.ref }}
@@ -12,6 +16,7 @@ concurrency:
 
 jobs:
   test:
+    name: Run unit tests
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: ${{ github.workspace }}
@@ -69,6 +74,7 @@ jobs:
             retention-days: 7
 
   build-rpm:
+    name: Build RPM Packages
     needs: test
     runs-on: ubuntu-latest
     strategy:
@@ -139,6 +145,7 @@ jobs:
           path: ~/rpmbuild/RPMS/noarch/dnsblchk-*.rpm
 
   build-deb:
+    name: Build DEB Package
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -155,11 +162,15 @@ jobs:
           key: ${{ runner.os }}-pip-deb-${{ hashFiles('requirements.txt', 'pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-deb-
-      - name: Install build tools
+      - name: Install build tools (optimized)
         run: |
-          sudo apt update
-          sudo apt install -y build-essential debhelper dh-python python3-all python3-setuptools python3-pip fakeroot
+          sudo apt-get -o Acquire::Retries=3 update
+          # Remove python3-all (was causing pybuild to iterate over many Python versions -> slowdown)
+          # Use --no-install-recommends to cut download size.
+          sudo apt-get install -y --no-install-recommends \
+            build-essential debhelper dh-python python3 python3-setuptools python3-pip fakeroot
           python -m pip install --upgrade pip setuptools packaging wheel build
+          python -c "import sys; print('Using Python:', sys.version)"
       - name: Prepare debian metadata
         run: |
           VERSION=$(python3 -c 'import tomllib, pathlib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null \
@@ -184,6 +195,8 @@ jobs:
           EOF
           cat > debian/rules <<'EOF'
           #!/usr/bin/make -f
+          # Disable running tests during package build for speed (already run in CI test job)
+          export PYBUILD_DISABLE=test
           %:
           	dh $@ --with python3 --buildsystem=pybuild
           EOF
@@ -197,9 +210,13 @@ jobs:
             * Automated build.
            -- DNSBL Checker <contact@example.com>  $(date -u '+%a, %d %b %Y %H:%M:%S +0000')
           EOF
-      - name: Build DEB package
+      - name: Build DEB package (single Python, nocheck)
+        env:
+          DEB_BUILD_OPTIONS: nocheck
         run: |
-          dpkg-buildpackage -us -uc -b
+          # Show available Python interpreters to confirm only one major version is used
+          ls -1 /usr/bin/python3* || true
+          time dpkg-buildpackage -us -uc -b
       - name: Collect DEB artifact
         run: |
           mkdir -p deb-artifacts
@@ -212,8 +229,79 @@ jobs:
           name: deb-package
           path: deb-artifacts/*.deb
 
+  build-and-push-docker:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    # Ensure we only build images for version tags starting with v (same gating as publish-release)
+    # Works for both push and release events because github.ref will be the tag ref.
+    if: startsWith(github.ref, 'refs/tags/v')
+    # Build after packages to ensure version/tag consistency and tests already passed.
+    needs: [build-rpm, build-deb]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache pip (Docker image build)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-docker-${{ hashFiles('requirements.txt', 'pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-docker-
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata (tags & labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/dnsblchk
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            PIP_CACHE_DIR=/root/.cache/pip
+      - name: Image digest summary
+        run: |
+          echo "Image digest: ${{ steps.build.outputs.digest }}"
+          echo "image-digest=${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
+          echo "Docker image digest (multi-platform manifest): ${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+      - name: Summary
+        run: |
+          echo "Published image tags: ${{ steps.meta.outputs.tags }}"
+          echo "Image available at: ghcr.io/${{ github.repository_owner }}/dnsblchk"
+          echo "Manifest digest: ${{ steps.build.outputs.digest }}"
+
   publish-release:
-    # New job: create GitHub Release with artifacts when tagging a version
+    name: Publish Release Packages
     needs: [build-rpm, build-deb]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
