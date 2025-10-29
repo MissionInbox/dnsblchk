@@ -27,6 +27,12 @@ email:
   sender: "vlad@beta.obmengine.com"
   smtp_host: "localhost"
   smtp_port: 25
+  # Optional SMTP authentication.
+  smtp_user: ""         # Username for SMTP AUTH (leave empty if not needed).
+  smtp_password: ""     # Password for SMTP AUTH (leave empty if not needed).
+  # Encryption settings (choose one).
+  use_tls: false         # Use STARTTLS (typical port 587).
+  use_ssl: false         # Use implicit SSL (typical port 465). If true, overrides use_tls.
 
 # Logging settings.
 logging:

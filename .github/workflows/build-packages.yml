@@ -3,6 +3,7 @@ name: Build Packages
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
 
 concurrency:
@@ -12,6 +13,8 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     outputs:
       python-version: ${{ steps.pyver.outputs.python_version }}
     steps:
@@ -25,14 +28,30 @@ jobs:
         id: pyver
         run: |
           echo "python_version=$(python -V)" >> $GITHUB_OUTPUT
+      - name: Verify module availability
+        run: |
+          python - <<'PY'
+          import sys, os, glob
+          print('Working directory:', os.getcwd())
+          print('sys.path:', sys.path)
+          print('Top-level .py files:', glob.glob('*.py'))
+          try:
+              import logger
+              print('logger module file:', logger.__file__)
+          except Exception as e:
+              print('Failed to import logger:', e)
+              raise
+          PY
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Ensure modern packaging stack to avoid canonicalize_version errors
+          pip install --upgrade setuptools packaging wheel build
           pip install pytest
       - name: Run tests
         run: |
-          pytest -q || pytest -vv
+          python -m pytest -q || python -m pytest -vv
       - name: Upload logs (if any)
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,97 +77,53 @@ jobs:
           set -e
           if command -v dnf >/dev/null 2>&1; then
             PM=dnf
-            $PM -y install rpm-build python3 python3-devel python3-pip python3-setuptools python3-wheel shadow-utils systemd systemd-rpm-macros || {
-              echo "Primary install failed"; exit 1;
-            }
           else
             PM=yum
-            $PM -y install rpm-build python3 python3-devel python3-pip python3-setuptools python3-wheel shadow-utils systemd || {
-              echo "Primary install failed"; exit 1;
-            }
           fi
-          pip3 install --upgrade pip setuptools wheel
+          # Base packages required to build a Python RPM
+          $PM -y install rpm-build python3 python3-devel python3-pip python3-setuptools shadow-utils systemd || {
+            echo "Base package install failed"; exit 1;
+          }
+          # Upgrade packaging tools (include packaging & build to fix canonicalize_version mismatch)
+          pip3 install --upgrade pip setuptools packaging wheel build
       - name: Create RPM build environment
         run: |
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
       - name: Create source distribution
         run: |
-          python3 setup.py sdist
+          python3 -m build --sdist
+          ls -l dist
       - name: Copy source distribution to SOURCES
         run: |
           cp dist/dnsblchk-*.tar.gz ~/rpmbuild/SOURCES/
       - name: Capture version
         id: version
         run: |
-          VERSION=$(python3 setup.py --version)
+          # Use python3 in container images where `python` may not exist.
+          # Try tomllib (py3.11+), fall back to tomli; install tomli if needed.
+          VERSION=$(python3 -c 'import tomllib, pathlib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null \
+            || python3 -c 'import tomli, pathlib; print(tomli.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null \
+            || (python3 -m pip install tomli && python3 -c 'import tomli, pathlib; print(tomli.load(open("pyproject.toml","rb"))["project"]["version"])') )
           echo "version=$VERSION" >> $GITHUB_OUTPUT
       - name: Create .spec file
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          cat << 'EOF' > ~/rpmbuild/SPECS/dnsblchk.spec
-          %global src_name dnsblchk
-          Name:           %{src_name}
-          Version:        VERSION_PLACEHOLDER
-          Release:        1%{?dist}
-          Summary:        A DNS Blacklist Checker service
-          License:        MIT
-          URL:            https://github.com/transilvlad/dnsblchk
-          Source0:        %{src_name}-%{version}.tar.gz
-          BuildArch:      noarch
-          Requires:       python3
-          Requires:       python3-pip
-          Requires(post):   systemd
-          Requires(preun):  systemd
-          Requires(postun): systemd
-          %description
-          A service to monitor IP addresses against DNS blacklists (DNSBLs) and send email alerts.
-          %prep
-          %setup -q -n %{src_name}-%{version}
-          %build
-          # Pure Python; nothing to compile.
-          %install
-          pip3 install --root %{buildroot} --no-deps .
-          install -d -m 755 %{buildroot}/%{_sysconfdir}/%{src_name}
-          install -d -m 755 %{buildroot}/%{_unitdir}
-          install -d -m 755 %{buildroot}/var/log/%{src_name}
-          install -d -m 755 %{buildroot}/var/run/%{src_name}
-          install -m 644 dnsblchk.service %{buildroot}/%{_unitdir}/dnsblchk.service
-          install -m 644 config/config.yaml.template %{buildroot}/%{_sysconfdir}/%{src_name}/config.yaml
-          %post
-          %systemd_post dnsblchk.service
-          /usr/sbin/useradd -r -s /bin/false -d /opt/%{src_name} %{src_name} >/dev/null 2>&1 || :
-          chown -R %{src_name}:%{src_name} /var/log/%{src_name}
-          chown -R %{src_name}:%{src_name} /var/run/%{src_name}
-          echo "Installation complete. Configure /etc/dnsblchk/config.yaml"
-          echo "Start: systemctl start dnsblchk.service"
-          %preun
-          %systemd_preun dnsblchk.service
-          %postun
-          %systemd_postun_with_restart dnsblchk.service
-          /usr/sbin/userdel %{src_name} >/dev/null 2>&1 || :
-          %files
-          %license LICENSE
-          %doc README.md
-          %{python3_sitelib}/%{src_name}/*
-          %{python3_sitelib}/%{src_name}-*.dist-info/*
-          %{_bindir}/dnsblchk
-          %config(noreplace) %{_sysconfdir}/%{src_name}/config.yaml
-          %{_unitdir}/dnsblchk.service
-          /var/log/%{src_name}
-          /var/run/%{src_name}
-          %changelog
-          * Wed Oct 29 2025 GitHub Actions <actions@github.com> - VERSION_PLACEHOLDER-1
-          - Automated multi-distro build.
-          EOF
-          sed -i "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.version }}/g" ~/rpmbuild/SPECS/dnsblchk.spec
+          cp dnsblchk.spec ~/rpmbuild/SPECS/dnsblchk.spec
+          sed -i "s/@VERSION@/${VERSION}/g" ~/rpmbuild/SPECS/dnsblchk.spec
       - name: Build RPM
         run: |
           rpmbuild -ba ~/rpmbuild/SPECS/dnsblchk.spec
           echo "Built RPMs:" && ls -1 ~/rpmbuild/RPMS/noarch || true
+      - name: Sanitize image name
+        id: img
+        run: |
+          IMAGE="${{ matrix.image }}"
+          SAFE="${IMAGE//:/-}"
+          echo "safe_image=$SAFE" >> $GITHUB_OUTPUT
       - name: Upload RPM artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rpm-package-${{ matrix.image }}
+          name: rpm-package-${{ steps.img.outputs.safe_image }}
           path: ~/rpmbuild/RPMS/noarch/dnsblchk-*.rpm
 
   build-deb:
@@ -165,9 +140,13 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y build-essential debhelper dh-python python3-all python3-setuptools python3-pip fakeroot
+          python -m pip install --upgrade pip setuptools packaging wheel build
       - name: Prepare debian metadata
         run: |
-          VERSION=$(python setup.py --version)
+          # Robustly read version using python (prefer tomllib, fall back to tomli and install it if missing).
+          VERSION=$(python3 -c 'import tomllib, pathlib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null \
+            || python3 -c 'import tomli, pathlib; print(tomli.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null \
+            || (python3 -m pip install tomli && python3 -c 'import tomli, pathlib; print(tomli.load(open("pyproject.toml","rb"))["project"]["version"])') )
           echo "Detected version: $VERSION"
           mkdir -p debian
           cat > debian/control <<'EOF'
@@ -185,7 +164,6 @@ jobs:
           Description: DNS Blacklist Checker service
            Monitors IPs against DNSBLs and can email alerts.
           EOF
-          echo '13' > debian/compat
           cat > debian/rules <<'EOF'
           #!/usr/bin/make -f
           %:
@@ -204,9 +182,65 @@ jobs:
       - name: Build DEB package
         run: |
           dpkg-buildpackage -us -uc -b
+      - name: Collect DEB artifact
+        run: |
+          mkdir -p deb-artifacts
+          cp ../dnsblchk_*_all.deb deb-artifacts/ 2>/dev/null || true
+          cp ../dnsblchk_*_amd64.deb deb-artifacts/ 2>/dev/null || true
+          ls -l deb-artifacts || true
       - name: Upload DEB artifact
         uses: actions/upload-artifact@v4
         with:
           name: deb-package
-          path: ../dnsblchk_*_all.deb
+          path: deb-artifacts/*.deb
 
+  publish-release:
+    # New job: create GitHub Release with artifacts when tagging a version
+    needs: [build-rpm, build-deb]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download RPM artifact (rockylinux)
+        uses: actions/download-artifact@v4
+        with:
+          name: rpm-package-rockylinux-9
+          path: artifacts/rpm
+      - name: Download RPM artifact (almalinux)
+        uses: actions/download-artifact@v4
+        with:
+          name: rpm-package-almalinux-9
+          path: artifacts/rpm
+      - name: Download RPM artifact (fedora)
+        uses: actions/download-artifact@v4
+        with:
+          name: rpm-package-fedora-latest
+          path: artifacts/rpm
+      - name: Download DEB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-package
+          path: artifacts/deb
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build Python distributions
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          ls -l dist
+      - name: Create Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.whl
+            artifacts/rpm/*.rpm
+            artifacts/deb/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
