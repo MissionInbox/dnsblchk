@@ -1,0 +1,212 @@
+name: Build Packages
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: build-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      python-version: ${{ steps.pyver.outputs.python_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Show Python version
+        id: pyver
+        run: |
+          echo "python_version=$(python -V)" >> $GITHUB_OUTPUT
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+      - name: Run tests
+        run: |
+          pytest -q || pytest -vv
+      - name: Upload logs (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+            name: test-logs
+            path: logs/
+            if-no-files-found: ignore
+            retention-days: 7
+
+  build-rpm:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [rockylinux:9, almalinux:9, fedora:latest]
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          set -e
+          if command -v dnf >/dev/null 2>&1; then
+            PM=dnf
+            $PM -y install rpm-build python3 python3-devel python3-pip python3-setuptools python3-wheel shadow-utils systemd systemd-rpm-macros || {
+              echo "Primary install failed"; exit 1;
+            }
+          else
+            PM=yum
+            $PM -y install rpm-build python3 python3-devel python3-pip python3-setuptools python3-wheel shadow-utils systemd || {
+              echo "Primary install failed"; exit 1;
+            }
+          fi
+          pip3 install --upgrade pip setuptools wheel
+      - name: Create RPM build environment
+        run: |
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+      - name: Create source distribution
+        run: |
+          python3 setup.py sdist
+      - name: Copy source distribution to SOURCES
+        run: |
+          cp dist/dnsblchk-*.tar.gz ~/rpmbuild/SOURCES/
+      - name: Capture version
+        id: version
+        run: |
+          VERSION=$(python3 setup.py --version)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Create .spec file
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          cat << 'EOF' > ~/rpmbuild/SPECS/dnsblchk.spec
+          %global src_name dnsblchk
+          Name:           %{src_name}
+          Version:        VERSION_PLACEHOLDER
+          Release:        1%{?dist}
+          Summary:        A DNS Blacklist Checker service
+          License:        MIT
+          URL:            https://github.com/transilvlad/dnsblchk
+          Source0:        %{src_name}-%{version}.tar.gz
+          BuildArch:      noarch
+          Requires:       python3
+          Requires:       python3-pip
+          Requires(post):   systemd
+          Requires(preun):  systemd
+          Requires(postun): systemd
+          %description
+          A service to monitor IP addresses against DNS blacklists (DNSBLs) and send email alerts.
+          %prep
+          %setup -q -n %{src_name}-%{version}
+          %build
+          # Pure Python; nothing to compile.
+          %install
+          pip3 install --root %{buildroot} --no-deps .
+          install -d -m 755 %{buildroot}/%{_sysconfdir}/%{src_name}
+          install -d -m 755 %{buildroot}/%{_unitdir}
+          install -d -m 755 %{buildroot}/var/log/%{src_name}
+          install -d -m 755 %{buildroot}/var/run/%{src_name}
+          install -m 644 dnsblchk.service %{buildroot}/%{_unitdir}/dnsblchk.service
+          install -m 644 config/config.yaml.template %{buildroot}/%{_sysconfdir}/%{src_name}/config.yaml
+          %post
+          %systemd_post dnsblchk.service
+          /usr/sbin/useradd -r -s /bin/false -d /opt/%{src_name} %{src_name} >/dev/null 2>&1 || :
+          chown -R %{src_name}:%{src_name} /var/log/%{src_name}
+          chown -R %{src_name}:%{src_name} /var/run/%{src_name}
+          echo "Installation complete. Configure /etc/dnsblchk/config.yaml"
+          echo "Start: systemctl start dnsblchk.service"
+          %preun
+          %systemd_preun dnsblchk.service
+          %postun
+          %systemd_postun_with_restart dnsblchk.service
+          /usr/sbin/userdel %{src_name} >/dev/null 2>&1 || :
+          %files
+          %license LICENSE
+          %doc README.md
+          %{python3_sitelib}/%{src_name}/*
+          %{python3_sitelib}/%{src_name}-*.dist-info/*
+          %{_bindir}/dnsblchk
+          %config(noreplace) %{_sysconfdir}/%{src_name}/config.yaml
+          %{_unitdir}/dnsblchk.service
+          /var/log/%{src_name}
+          /var/run/%{src_name}
+          %changelog
+          * Wed Oct 29 2025 GitHub Actions <actions@github.com> - VERSION_PLACEHOLDER-1
+          - Automated multi-distro build.
+          EOF
+          sed -i "s/VERSION_PLACEHOLDER/${{ steps.version.outputs.version }}/g" ~/rpmbuild/SPECS/dnsblchk.spec
+      - name: Build RPM
+        run: |
+          rpmbuild -ba ~/rpmbuild/SPECS/dnsblchk.spec
+          echo "Built RPMs:" && ls -1 ~/rpmbuild/RPMS/noarch || true
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-package-${{ matrix.image }}
+          path: ~/rpmbuild/RPMS/noarch/dnsblchk-*.rpm
+
+  build-deb:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build tools
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential debhelper dh-python python3-all python3-setuptools python3-pip fakeroot
+      - name: Prepare debian metadata
+        run: |
+          VERSION=$(python setup.py --version)
+          echo "Detected version: $VERSION"
+          mkdir -p debian
+          cat > debian/control <<'EOF'
+          Source: dnsblchk
+          Section: utils
+          Priority: optional
+          Maintainer: DNSBL Checker <contact@example.com>
+          Build-Depends: debhelper-compat (= 13), python3, python3-setuptools, dh-python
+          Standards-Version: 4.6.0
+          Homepage: https://github.com/example/dnsblchk
+
+          Package: dnsblchk
+          Architecture: all
+          Depends: ${python3:Depends}, ${misc:Depends}
+          Description: DNS Blacklist Checker service
+           Monitors IPs against DNSBLs and can email alerts.
+          EOF
+          echo '13' > debian/compat
+          cat > debian/rules <<'EOF'
+          #!/usr/bin/make -f
+          %:
+          	dh $@ --with python3 --buildsystem=pybuild
+          EOF
+          chmod +x debian/rules
+          cat > debian/install <<'EOF'
+          dnsblchk.service usr/lib/systemd/system/
+          config/config.yaml.template etc/dnsblchk/config.yaml
+          EOF
+          cat > debian/changelog <<EOF
+          dnsblchk ($VERSION-1) unstable; urgency=medium
+            * Automated build.
+           -- DNSBL Checker <contact@example.com>  $(date -u '+%a, %d %b %Y %H:%M:%S +0000')
+          EOF
+      - name: Build DEB package
+        run: |
+          dpkg-buildpackage -us -uc -b
+      - name: Upload DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: ../dnsblchk_*_all.deb
+
